@@ -19,34 +19,27 @@ def build_commit_prompt(status_text: str, diff_text: str) -> str:
 """
 
 def build_pr_prompt(status_text: str, diff_text: str) -> str:
-    return f"""아래의 git status와 git diff 결과를 분석하여 Pull Request(PR) 초안을 작성하세요.
+    return f"""당신은 PR 자동 생성 봇입니다. 
+당신의 응답은 반드시 오직 아래의 양식으로만 구성되어야 하며, 다른 설명이나 분석 과정은 절대 출력하지 마세요.
 
-[규칙]
-1. 인삿말, 역할 설명 등은 절대 적지 말고 바로 PR 내용만 출력하세요.
-2. 마크다운 코드 블록(```)을 사용하지 마세요.
-3. PR 제목과 본문을 아래 지정된 형식에 정확히 맞춰서 작성하세요.
-
-[출력 형식]
 [PR 제목]
-(이곳에 80자 이내의 제목 1줄 작성)
+(80자 이내의 PR 제목 작성)
 
 [PR 본문]
 ## Why
-- (변경한 이유를 불릿 포인트로 작성)
+- 변경 이유
 
 ## What
-- (무엇을 변경했는지 불릿 포인트로 작성)
+- 변경 내용
 
 ## How to Test
-- (어떻게 테스트할 수 있는지 불릿 포인트로 작성)
+- 테스트 방법
 
 [Git Status]
 {status_text}
 
 [Git Diff]
 {diff_text}
-
-위 규칙과 출력 형식을 엄격하게 지켜서 즉시 PR 초안을 출력하세요:
 """
 
 def post_process_commit(text: str) -> str:
@@ -68,7 +61,33 @@ def post_process_commit(text: str) -> str:
         
     return title
 
+import re
+
 def post_process_pr(text: str) -> str:
-    """PR 메시지 후처리: 불필요한 기호 제거 및 정리"""
+    """PR 메시지 후처리: 텍스트 긁어오기(다중 Fallback)"""
     text = text.replace("```text", "").replace("```markdown", "").replace("```", "").strip()
-    return text
+    
+    # 전략 1: 지정된 [PR 제목], [PR 본문] 포맷을 잘 따랐을 경우 (마지막 등장 기준)
+    if "[PR 제목]" in text and "[PR 본문]" in text:
+        title_idx = text.rfind("[PR 제목]")
+        body_idx = text.rfind("[PR 본문]")
+        if title_idx < body_idx:
+            title = text[title_idx + len("[PR 제목]"):body_idx].strip()
+            body = text[body_idx + len("[PR 본문]"):].strip()
+            return f"[PR 제목]\n{title}\n\n[PR 본문]\n{body}"
+            
+    # 전략 2: AI가 맘대로 *Title:*, *Why:* 등의 영문 템플릿으로 출력했을 경우
+    title_match = re.search(r'(?i)\*?\*?Title:\*?\*?\s*(.*?)$', text, re.MULTILINE)
+    why_match = re.search(r'(?i)\*?\*?Why:\*?\*?\s*(.*?)(?=\*?\*?What:|$)', text, re.DOTALL)
+    what_match = re.search(r'(?i)\*?\*?What:\*?\*?\s*(.*?)(?=\*?\*?How to Test:|$)', text, re.DOTALL)
+    how_match = re.search(r'(?i)\*?\*?How to Test:\*?\*?\s*(.*)', text, re.DOTALL)
+    
+    if title_match and (why_match or what_match):
+        title = title_match.group(1).strip()
+        body = ""
+        if why_match: body += "## Why\n" + why_match.group(1).strip() + "\n\n"
+        if what_match: body += "## What\n" + what_match.group(1).strip() + "\n\n"
+        if how_match: body += "## How to Test\n" + how_match.group(1).strip()
+        return f"[PR 제목]\n{title}\n\n[PR 본문]\n{body.strip()}"
+        
+    return "[추출 실패] 원본 텍스트:\n" + text

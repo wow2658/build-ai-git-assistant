@@ -86,7 +86,7 @@ def main():
     print(final_text)
     print("==================================================")
         
-    # 6. 클립보드 자동 복사
+    # 6. 클립보드 자동 copy
     try:
         pyperclip.copy(final_text)
         print("[SUCCESS] 클립보드에 자동 복사되었습니다. Ctrl+V로 붙여넣으세요!")

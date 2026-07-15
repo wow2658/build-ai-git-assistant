@@ -163,3 +163,141 @@ python main.py commit
 ```text
 [INFO] 변경 사항이 없습니다. 커밋 메시지를 생성하지 않고 조기 종료합니다.
 ```
+
+---
+
+## 🛠️ AI Git Assistant 개발 트러블슈팅(Troubleshooting) 히스토리
+
+회사 분들에게 공유하기 좋도록, 우리가 처음부터 겪었던 문제점들과 원인, 그리고 그것을 어떻게 해결해 왔는지 Before/After 코드와 함께 시간순으로 정리했습니다.
+
+### Phase 1: 첫 커밋 시 `git diff` 증발 문제
+- **기대했던 결과:** 갓 생성한 프로젝트의 400줄이 넘는 코드를 AI에게 전달하여 분석하게 하는 것.
+- **발생한 문제:** `python main.py commit`을 처음 실행했을 때, `[INFO] Git diff 수집 완료: 0줄`이 떴습니다. 
+- **원인:** Git은 원래 `HEAD`(이전 커밋)와 현재 상태를 비교(diff)합니다. 하지만 **프로젝트의 가장 첫 커밋**은 비교할 대상(이전 커밋)이 아예 존재하지 않아 에러가 나거나 빈 값을 반환합니다.
+- **해결 방법:** `git_utils.py`에 예외 처리 로직을 추가하여, 이전 커밋이 없을 경우 Git 내부적으로 존재하는 **'빈 트리(Empty Tree)의 해시값'**과 강제 비교하도록 우회(Fallback)했습니다.
+
+**[Before]** (`git_utils.py`)
+```python
+# 단순히 HEAD와 캐시된 변경점 비교 (첫 커밋 시 실패)
+diff_res = subprocess.run(['git', 'diff', '--cached'], capture_output=True, text=True)
+return diff_res.stdout.strip()
+```
+
+**[After]** (`git_utils.py`)
+```python
+# HEAD 존재 여부를 먼저 확인하고, 없으면 Empty Tree Hash를 사용
+head_check = subprocess.run(['git', 'rev-parse', 'HEAD'], capture_output=True, text=True)
+if head_check.returncode != 0:
+    empty_tree_hash = '4b825dc642cb6eb9a060e54bf8d69288fbee4904'
+    diff_res = subprocess.run(['git', 'diff', '--cached', empty_tree_hash], capture_output=True, text=True, encoding='utf-8')
+else:
+    diff_res = subprocess.run(['git', 'diff', '--cached'], capture_output=True, text=True, encoding='utf-8')
+```
+
+---
+
+### Phase 2: AI의 "역할극(Role-Playing) 과몰입" 현상
+- **기대했던 결과:** `feat: 초기 세팅` 같은 깔끔한 커밋 메시지 딱 1줄.
+- **발생한 문제:** AI가 자꾸 `* Role: 10-year Senior Developer. * Input: git status...` 라며 장황하게 상황 설명을 늘어놓았습니다.
+- **원인:** 초기 프롬프트에 "당신은 10년 차 시니어 개발자입니다"라는 페르소나를 부여했더니, AI가 역할극에 과몰입하는 할루시네이션이 발생했습니다.
+- **해결 방법:** 역할극 문구를 아예 삭제하고, **Few-Shot(예시 훈련)** 기법을 도입하여 구체적인 입출력 예시를 강제했습니다.
+
+**[Before]** (`prompt_builder.py`)
+```python
+return f"""당신은 10년 차 시니어 개발자입니다. 
+아래의 git status와 git diff 결과를 분석하여 가장 적절한 커밋 메시지 제목을 작성하세요.
+..."""
+```
+
+**[After]** (`prompt_builder.py`)
+```python
+return f"""아래의 git status와 git diff 결과를 분석하여 가장 적절한 커밋 메시지 제목을 작성하세요.
+
+[예시]
+입력: (로그인 API 추가된 코드)
+출력: feat: 로그인 API 연동 및 인증 로직 구현
+..."""
+```
+
+---
+
+### Phase 3: 윈도우 인코딩 크래시 (이모지 에러)
+- **기대했던 결과:** 💡 이모지와 함께 "클립보드에 복사되었습니다" 메시지가 출력되는 것.
+- **발생한 문제:** 윈도우 터미널이 `UnicodeEncodeError`를 뿜으며 스크립트가 뻗어버렸습니다.
+- **원인:** 윈도우의 기본 터미널(CP949)이 파이썬이 출력하려는 전구 이모지(💡)를 인식하지 못했습니다.
+- **해결 방법:** 이모지를 윈도우 친화적인 영어 텍스트로 대체했습니다.
+
+**[Before]** (`main.py`)
+```python
+print("💡 (클립보드에 자동 복사되었습니다. Ctrl+V로 붙여넣으세요!)")
+```
+
+**[After]** (`main.py`)
+```python
+print("[SUCCESS] 클립보드에 자동 복사되었습니다. Ctrl+V로 붙여넣으세요!")
+```
+
+---
+
+### Phase 4: 커밋 메시지 포맷팅 고집과 JSON 강제화
+- **기대했던 결과:** AI가 `feat: ~` 형태의 1줄짜리 커밋 메시지만 뱉어내는 것.
+- **발생한 문제:** 400줄이 넘는 코드를 던져주자, AI가 1줄 요약을 무시하고 `* git status: Shows new files...` 라며 영문 코드 리뷰를 출력했습니다.
+- **원인:** 대형 언어 모델(`Gemma 4 26B`)이 지시사항보다 방대한 텍스트를 요약하고 싶어 하는 본능(Chain of Thought)이 발동했습니다.
+- **해결 방법:** 프롬프트를 **JSON 포맷**으로 강제하고, 파이썬에 **정규식(Regex) 파서**를 달아 JSON 껍데기 안의 밸류(Value)만 강제로 뜯어왔습니다.
+
+**[Before]** (`prompt_builder.py`)
+```python
+[규칙]
+1. 인삿말, 역할 설명, 과정 등은 절대 적지 마세요.
+2. 커밋 본문 없이 오직 제목 1줄만 출력하세요.
+```
+
+**[After]** (`prompt_builder.py`)
+```python
+[필수 규칙]
+반드시 아래의 JSON 포맷으로만 응답해야 하며, 다른 기호는 추가하지 마세요.
+{{
+  "commit_message": "chore: 초기 프로젝트 구조 설정 및 필수 파일 추가"
+}}
+```
+```python
+# 파이썬 파싱 로직 추가
+match = re.search(r'"commit_message"\s*:\s*"([^"]+)"', text)
+if match:
+    title = match.group(1).strip()
+```
+
+---
+
+### Phase 5: PR 생성 시 발생한 '자기 참조(Quine) 버그'와 불도저식 다중 Fallback
+- **기대했던 결과:** 마크다운 형태의 예쁜 PR 초안(Title, Why, What, How to Test) 텍스트 추출.
+- **발생한 문제:** AI의 헛소리를 자르기 위해 파이썬 코드에 `===TITLE===` 같은 구분 기호를 넣었으나 파싱 로직이 완전히 붕괴되었습니다.
+- **원인 (자기 참조 버그):** 파이썬 코드에 방금 추가한 기호가 `git diff`(코드 변경점) 안에 그대로 포함되어 AI에게 전달되었고, AI가 그 기호를 발견하고는 엉뚱한 맥락에 출력하여 `.split()` 로직을 박살 냈습니다.
+- **해결 방법 (불도저식 스크래핑 도입):**
+    AI의 출력 포맷을 통제하는 것을 포기하고, **어떻게 뱉어내든 강제로 뜯어오는 다중 정규식 덫**을 설치했습니다. AI가 제멋대로 영문 키워드(`*Title:*`, `*Why:*`)를 출력하더라도, 이를 감지해서 우리가 원하는 한국어 템플릿(`## Why`)으로 강제 재조립합니다.
+
+**[Before]** (`prompt_builder.py`)
+```python
+# 단순 무식한 자르기 (기호가 중복 등장하면 완벽하게 붕괴됨)
+if "===TITLE===" in text and "===BODY===" in text:
+    title_part = text.split("===TITLE===")[1].split("===BODY===")[0].strip()
+```
+
+**[After]** (`prompt_builder.py`)
+```python
+# 다중 Fallback 정규식 스크래핑 (AI가 어떤 양식으로 뱉어내든 강제 추출 후 조립)
+title_match = re.search(r'(?i)\*?\*?Title:\*?\*?\s*(.*?)$', text, re.MULTILINE)
+why_match = re.search(r'(?i)\*?\*?Why:\*?\*?\s*(.*?)(?=\*?\*?What:|$)', text, re.DOTALL)
+what_match = re.search(r'(?i)\*?\*?What:\*?\*?\s*(.*?)(?=\*?\*?How to Test:|$)', text, re.DOTALL)
+how_match = re.search(r'(?i)\*?\*?How to Test:\*?\*?\s*(.*)', text, re.DOTALL)
+
+if title_match and (why_match or what_match):
+    title = title_match.group(1).strip()
+    body = ""
+    if why_match: body += "## Why\n" + why_match.group(1).strip() + "\n\n"
+    # (한국어 템플릿으로 강제 재조립)
+```
+
+---
+**🏆 최종 결론:** 
+단순히 구글 AI API를 연결한 스크립트가 아니라, **AI의 할루시네이션(헛소리), 장황한 사고 과정(Chain of Thought), 그리고 초기 커밋이나 인코딩 에러 같은 로컬 환경의 돌발 변수까지 모두 엔지니어링으로 억눌러 통제한 진정한 의미의 CLI 비서**가 완성되었습니다.
