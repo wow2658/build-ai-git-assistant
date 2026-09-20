@@ -25,3 +25,12 @@ def get_git_diff() -> str:
         
     result = subprocess.run(['git', 'diff', target], capture_output=True, text=True, encoding='utf-8', errors='replace')
     return result.stdout.strip()
+
+def is_git_repository() -> bool:
+    """현재 디렉토리가 Git 저장소인지 확인합니다."""
+    try:
+        subprocess.run(['git', 'rev-parse', '--is-inside-work-tree'], 
+                       capture_output=True, text=True, check=True)
+        return True
+    except subprocess.CalledProcessError:
+        return False

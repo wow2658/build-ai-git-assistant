@@ -77,6 +77,10 @@ def post_process_pr(text: str) -> str:
     why_match = re.search(r'(?i)(?:##\s*Why|\*?\*?Why:\*?\*?)\s*(.*?)(?=(?:##\s*What|\*?\*?What:\*?\*?)|$)', text, re.DOTALL)
     what_match = re.search(r'(?i)(?:##\s*What|\*?\*?What:\*?\*?)\s*(.*?)(?=(?:##\s*How to Test|\*?\*?How to Test:\*?\*?)|$)', text, re.DOTALL)
     how_match = re.search(r'(?i)(?:##\s*How to Test|\*?\*?How to Test:\*?\*?)\s*(.*?)(?=\n\*|\n\n|$)', text, re.DOTALL)
+    title_match = re.search(r'(?im)^[\s\*\-]*(?:\[PR 제목\]|\*?\*?Title:\*?\*?)\s*(.*?)$', text)
+    why_match = re.search(r'(?im)^[\s\*\-]*(?:##\s*Why|\*?\*?Why:\*?\*?)\s*(.*?)(?=(?:^[\s\*\-]*(?:##\s*What|\*?\*?What:\*?\*?))|$)', text, re.DOTALL)
+    what_match = re.search(r'(?im)^[\s\*\-]*(?:##\s*What|\*?\*?What:\*?\*?)\s*(.*?)(?=(?:^[\s\*\-]*(?:##\s*How to Test|\*?\*?How to Test:\*?\*?))|$)', text, re.DOTALL)
+    how_match = re.search(r'(?im)^[\s\*\-]*(?:##\s*How to Test|\*?\*?How to Test:\*?\*?)\s*(.*?)(?=\n^[\s\*\-]*\[Git Status\]|\n\n|$)', text, re.DOTALL)
     
     # 긁어모은 파편(match 객체)들을 우리가 원하는 완벽한 한글 양식(## Why 등)으로 다시 재조립합니다.
     if title_match and (why_match or what_match):
