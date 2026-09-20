@@ -34,3 +34,12 @@ def is_git_repository() -> bool:
         return True
     except subprocess.CalledProcessError:
         return False
+
+def get_git_author() -> str:
+    """현재 Git 설정된 사용자 이름을 반환합니다."""
+    try:
+        res = subprocess.run(['git', 'config', 'user.name'], 
+                             capture_output=True, text=True, check=True)
+        return res.stdout.strip()
+    except subprocess.CalledProcessError:
+        return "Unknown Author"
