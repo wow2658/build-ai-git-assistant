@@ -6,6 +6,7 @@ def build_commit_prompt(status_text: str, diff_text: str) -> str:
 [필수 규칙]
 반드시 아래의 JSON 포맷으로만 응답해야 하며, 그 외의 어떠한 설명이나 기호(```)도 추가하지 마세요.
 커밋 메시지 제목은 Conventional Commits 형식(feat:, fix:, chore: 등)으로 시작해야 합니다.
+모든 내용은 반드시 '한국어'로만 작성해야 합니다 (접두어 제외).
 
 {{
   "commit_message": "chore: 초기 프로젝트 구조 설정 및 필수 파일 추가"
@@ -21,6 +22,7 @@ def build_commit_prompt(status_text: str, diff_text: str) -> str:
 def build_pr_prompt(status_text: str, diff_text: str) -> str:
     return f"""당신은 PR 자동 생성 봇입니다. 
 당신의 응답은 반드시 오직 아래의 양식으로만 구성되어야 하며, 다른 설명이나 분석 과정은 절대 출력하지 마세요.
+모든 PR 제목과 본문 내용은 반드시 '한국어'로만 작성해야 합니다 (코드 파일명 제외).
 
 [PR 제목]
 (80자 이내의 PR 제목 작성)
