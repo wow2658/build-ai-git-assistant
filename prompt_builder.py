@@ -44,22 +44,21 @@ def build_pr_prompt(status_text: str, diff_text: str) -> str:
 
 def post_process_commit(text: str) -> str:
     """커밋 메시지 후처리: JSON 파싱 및 최대 72자 제한 적용"""
-    # 방어 1단계: AI가 습관적으로 붙이는 마크다운 코드 블록(```json 등) 기호 청소
     text = text.replace("```json", "").replace("```text", "").replace("```", "").strip()
     
-    # 방어 2단계: 정규식 핀셋 추출
-    # 앞뒤에 AI가 헛소리를 덧붙여도, 정확히 "commit_message": "내용" 패턴만 긁어옵니다.
-    match = re.search(r'"commit_message"\s*:\s*"([^"]+)"', text)
-    if match:
-        title = match.group(1).strip()
+    # 정규식으로 "commit_message": "내용" 추출 (AI가 예시를 말할 수 있으므로 마지막 매칭 사용)
+    matches = re.findall(r'"commit_message"\s*:\s*"([^"]+)"', text)
+    if matches:
+        title = matches[-1].strip()
+        # 만약 AI가 내부 생각으로 "..." 이라고 적은 걸 잡았다면 그 전 것을 씀
+        if title == "..." and len(matches) > 1:
+            title = matches[-2].strip()
     else:
-        # 방어 3단계 (최후의 보루): JSON 추출마저 실패했다면 에러를 내지 않고 
-        # 무조건 텍스트의 첫 번째 줄을 제목으로 간주해서 백업합니다.
+        # JSON 추출 실패 시, 첫 줄 백업
         lines = [line.strip() for line in text.split('\n') if line.strip()]
         title = lines[0] if lines else "chore: 코드 변경사항 업데이트"
         
-    # 방어 4단계: 72자 제한 강제
-    # Git 커밋 컨벤션에 맞춰 너무 긴 문장은 무자비하게 69자에서 자르고 ...을 붙입니다.
+    # 72자 제한
     if len(title) > 72:
         title = title[:69] + "..."
         
@@ -72,22 +71,10 @@ def post_process_pr(text: str) -> str:
     # 방어 1단계: 마크다운 찌꺼기 청소
     text = text.replace("```text", "").replace("```markdown", "").replace("```", "").strip()
     
-    # 전략 1 (행복 회로): AI가 프롬프트 양식([PR 제목], [PR 본문])을 정확히 따랐을 경우
-    # 텍스트 내에서 해당 글자들의 위치(Index)를 찾아서 그 사이의 텍스트만 슬라이싱해 잘라냅니다.
-    if "[PR 제목]" in text and "[PR 본문]" in text:
-        title_idx = text.rfind("[PR 제목]")
-        body_idx = text.rfind("[PR 본문]")
-        if title_idx < body_idx:
-            title = text[title_idx + len("[PR 제목]"):body_idx].strip()
-            body = text[body_idx + len("[PR 본문]"):].strip()
-            return f"[PR 제목]\n{title}\n\n[PR 본문]\n{body}"
-            
-    # 전략 2 (구조대 투입): AI가 프롬프트를 무시하고 *Title:*, *Why:* 등의 영문 템플릿으로 출력했을 경우
-    # 다중 줄(MULTILINE) 및 모든 문자(DOTALL) 매칭 정규식을 이용해 각 섹션의 파편을 긁어모읍니다.
-    title_match = re.search(r'(?i)\*?\*?Title:\*?\*?\s*(.*?)$', text, re.MULTILINE)
-    why_match = re.search(r'(?i)\*?\*?Why:\*?\*?\s*(.*?)(?=\*?\*?What:|$)', text, re.DOTALL)
-    what_match = re.search(r'(?i)\*?\*?What:\*?\*?\s*(.*?)(?=\*?\*?How to Test:|$)', text, re.DOTALL)
-    how_match = re.search(r'(?i)\*?\*?How to Test:\*?\*?\s*(.*)', text, re.DOTALL)
+    title_match = re.search(r'(?i)(?:\[PR 제목\]|\*?\*?Title:\*?\*?)\s*(.*?)$', text, re.MULTILINE)
+    why_match = re.search(r'(?i)(?:##\s*Why|\*?\*?Why:\*?\*?)\s*(.*?)(?=(?:##\s*What|\*?\*?What:\*?\*?)|$)', text, re.DOTALL)
+    what_match = re.search(r'(?i)(?:##\s*What|\*?\*?What:\*?\*?)\s*(.*?)(?=(?:##\s*How to Test|\*?\*?How to Test:\*?\*?)|$)', text, re.DOTALL)
+    how_match = re.search(r'(?i)(?:##\s*How to Test|\*?\*?How to Test:\*?\*?)\s*(.*?)(?=\n\*|\n\n|$)', text, re.DOTALL)
     
     # 긁어모은 파편(match 객체)들을 우리가 원하는 완벽한 한글 양식(## Why 등)으로 다시 재조립합니다.
     if title_match and (why_match or what_match):
